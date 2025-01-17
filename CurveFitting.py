@@ -109,5 +109,3 @@ class Model:
         # equivalent to fit + transform
         self.fit(xdata, ydata, yerr = yerr, p0 = p0, bounds = bounds, const_flag = const_flag, absolute_sigma = absolute_sigma)
         return self.transform(xdata), self.popt, self.perr
-
-        

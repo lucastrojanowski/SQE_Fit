@@ -89,41 +89,64 @@ class DataPlot:
         ax.set_xlabel(xlabel, fontsize = LabelFontSize)
         ax.set_ylabel(ylabel, fontsize = LabelFontSize)
 
-class grpFileReader:
-    def __init__(self, grpfilename):
-        self.grpfilename_ = grpfilename
+class FileReader:
+    def __init__(self, filename):
+        self.filename = filename
     def read(self):
-        with open(self.grpfilename_, "r") as fin:
-            energy_ = []
-            q_ = []
-            data_ = []
-            error_ = []
-            fin.readline()
-            n_energy = int(fin.readline())
-            fin.readline()
-            n_q = int(fin.readline())
-            fin.readline()
-            for i in range(n_energy):
-                energy_.append(float(fin.readline().strip()))
-            fin.readline()
-            for i in range(n_q):
-                q_.append(float(fin.readline().strip()))
-            for i in range(n_q):
+        def get_bin_center(bin_edges):
+            return (bin_edges[1:] + bin_edges[:-1])*0.5
+        
+        if self.filename.endswith('.grp'):
+            with open(self.filename, "r") as fin:
+                energy_ = []
+                q_ = []
+                data_ = []
+                error_ = []
                 fin.readline()
-                data_.append([])
-                error_.append([])
+                n_energy = int(fin.readline())
+                fin.readline()
+                n_q = int(fin.readline())
+                fin.readline()
                 for i in range(n_energy):
-                    aline = fin.readline()
-                    linelist = aline.strip().split()
-                    data_[-1].append(float(linelist[0]))
-                    error_[-1].append(float(linelist[1]))
-            energy_ = np.array(energy_)
-            q_ = np.array(q_)
-            data_ = np.array(data_)
-            error_ = np.array(error_)
-            print("Number of energies: %s"%(n_energy))
-            print("Number of qs: %s"%(n_q))
+                    energy_.append(float(fin.readline().strip()))
+                fin.readline()
+                for i in range(n_q):
+                    q_.append(float(fin.readline().strip()))
+                for i in range(n_q):
+                    fin.readline()
+                    data_.append([])
+                    error_.append([])
+                    for i in range(n_energy):
+                        aline = fin.readline()
+                        linelist = aline.strip().split()
+                        data_[-1].append(float(linelist[0]))
+                        error_[-1].append(float(linelist[1]))
+                energy_ = np.array(energy_)
+                q_ = np.array(q_)
+                data_ = np.array(data_)
+                error_ = np.array(error_)
+                print("Number of energies: %s"%(n_energy))
+                print("Number of qs: %s"%(n_q))
+                
             return energy_, q_, data_, error_
+            
+        elif self.filename.endswith('.npz'):
+            with np.load(self.filename) as data:
+
+                datatype = data.files[7]; errortype = data.files[8]
+                energy_ = get_bin_center(data['cut_dim_edges']);     print(f'Number of energies: {len(data[datatype][0])}')
+                q_ = data['integrated_dim_center_list'];             print(f'Number of Q: {len(q_)}')
+                data_ = []
+                error_ = []
+
+                for i in range(len(q_)):
+                    data_.append(data[datatype][i])
+                    error_.append([np.sqrt(data[errortype][i])])
+                    
+            return energy_, q_, data_, error_
+                
+        else:
+            raise(TypeError(f'Unrecognized file type. Convert {self.filename} to a .grp or a .npz file'))
 
 class ResolutionDataModel:
     def __init__(self, grpfilename, energy_range, q_index = None, max_n_gauss = 4, neutron_e0 = None, seed = 42, background_type = 'c', mirror = 'off'):
