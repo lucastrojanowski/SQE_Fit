@@ -90,13 +90,27 @@ class DataPlot:
         ax.set_ylabel(ylabel, fontsize = LabelFontSize)
 
 class FileReader:
-    def __init__(self, filename):
+
+    """
+    Module for reading data from inelastic xray/neutron scattering experiments.
+    Attributes:
+        filename (str): path to loaded data file
+        datatype (str, required only for .npz files): type of data to load from npz file
+    Methods:
+        __init__(filename): Initializes the FileReader with the given filename.
+        read(): Reads and parses the data from the file specified during initialization.
+    """
+    
+    def __init__(self, filename, datatype = None):
         self.filename = filename
+        self.datatype = datatype
+
     def read(self):
+
         def get_bin_center(bin_edges):
             return (bin_edges[1:] + bin_edges[:-1])*0.5
         
-        if self.filename.endswith('.grp'):
+        if self.filename.endswith('.'):
             with open(self.filename, "r") as fin:
                 energy_ = []
                 q_ = []
@@ -132,34 +146,80 @@ class FileReader:
             
         elif self.filename.endswith('.npz'):
             with np.load(self.filename) as data:
+                if self.datatype == 'coherent':
 
-                datatype = data.files[7]; errortype = data.files[8]
-                energy_ = get_bin_center(data['cut_dim_edges']);     print(f'Number of energies: {len(data[datatype][0])}')
-                q_ = data['integrated_dim_center_list'];             print(f'Number of Q: {len(q_)}')
-                data_ = []
-                error_ = []
-
-                for i in range(len(q_)):
-                    data_.append(data[datatype][i])
-                    error_.append([np.sqrt(data[errortype][i])])
+                    energy_ = get_bin_center(data['cut_dim_edges']);     print(f'Number of energies: {len(data['coh_signal'][0])}')
+                    q_ = data['integrated_dim_center_list'];             print(f'Number of Q: {len(q_)}')
+                    data_ = data['coh_signal']
+                    error_ = np.sqrt(data['coh_err2'])
                     
-            return energy_, q_, data_, error_
+                    return energy_, q_, data_, error_
+                if self.datatype == 'incoherent':
+
+                    energy_ = get_bin_center(data['cut_dim_edges']);     print(f'Number of energies: {len(data['inc_signal'][0])}')
+                    q_ = data['integrated_dim_center_list'];             print(f'Number of Q: {len(q_)}')
+                    data_ = data['inc_signal']
+                    error_ = np.sqrt(data['inc_err2'])
+                    
+                    return energy_, q_, data_, error_
                 
+                if self.datatype == 'unpolarized':
+
+                    energy_ = get_bin_center(data['cut_dim_edges']);     print(f'Number of energies: {len(data['up_signal'][0])}')
+                    q_ = data['integrated_dim_center_list'];             print(f'Number of Q: {len(q_)}')
+                    data_ = data['up_signal']
+                    error_ = np.sqrt(data['up_err2'])
+                    
+                    return energy_, q_, data_, error_
+                    
         else:
             raise(TypeError(f'Unrecognized file type. Convert {self.filename} to a .grp or a .npz file'))
 
 class ResolutionDataModel:
-    def __init__(self, grpfilename, energy_range, q_index = None, max_n_gauss = 4, neutron_e0 = None, seed = 42, background_type = 'c', mirror = 'off'):
-        
+    """
+    ResolutionDataModel is a class for fitting resolution data from neutron scattering experiments to sums of Gaussians.
+    Attributes:
+        seed_ (int): Seed for random number generation.
+        max_n_gauss_ (int): Maximum number of Gaussian components for fitting resolution function.
+        neutron_e0_ (float or str): Incident neutron energy.
+        mirror_ (str): Mirror option for data ('off', 'left', 'right').
+        background_type_ (str): Type of background ('c' for constant, 'p' for power law).
+        filename_ (str): Path to the input data file.
+        q_index_ (list): Indices of q values to be used.
+        energy_range_ (list): Energy range for each q value.
+        energy_ (list): Energy data for each q value.
+        resolution_ (list): Resolution data for each q value.
+        error_ (list): Error data for each q value.
+        fitted_parameters_ (list): Fitted parameters for each q value.
+        fitted_parameters_error_ (list): Errors of fitted parameters for each q value.
+        chi2_ (list): Chi-squared values for each fit.
+
+    Methods:
+        __init__(filename, energy_range, datatype= 'incoherent', q_index=None, max_n_gauss=4, neutron_e0=None, seed=42, background_type='c', mirror='off'):
+            Initializes the ResolutionDataModel with the given parameters. Note that data is read from FileReader module. 
+        R_QE_component(E_, *args):
+            Returns the components of the resolution function for given energy and parameters.
+        R_QE(E_, *args):
+            Returns the resolution function for given energy and parameters based on summing R_QE components.
+        fit(max_fail_count=20, weighted_with_error=True):
+            Fits the resolution data to the model.
+        output_results(output_dir="."):
+            Outputs the fitting results to a text file.
+        plot_results(output_dir=".", log_scale=False, show_errorbar=True):
+            Plots the fitting results and saves the plots.
+    """
+    
+    def __init__(self, filename, energy_range, datatype = 'incoherent', q_index = None, max_n_gauss = 4, neutron_e0 = None,  seed = 42, background_type = 'c', mirror = 'off'):
         self.seed_ = seed
         np.random.seed(self.seed_)
         self.max_n_gauss_ = max_n_gauss
         self.neutron_e0_ = neutron_e0 if neutron_e0 else 'N/A'
         self.mirror_ = mirror
         self.background_type_ = background_type #background_type: 'c' = constant, 'p' = power law
-        self.grpfilename_ = grpfilename
+        self.filename_ = filename
+        self.datatype = datatype
 
-        energy_tmp, self.q_, resolution_tmp, error_tmp = grpFileReader(self.grpfilename_).read()
+        energy_tmp, self.q_, resolution_tmp, error_tmp = FileReader(self.filename_, self.datatype).read()
         self.q_index_ = [i for i in range(len(self.q_))] if q_index is None else q_index
         self.q_ = self.q_[self.q_index_]
         resolution_tmp = resolution_tmp[self.q_index_]
@@ -198,7 +258,6 @@ class ResolutionDataModel:
             self.error_[-1]      /= self.resolution_[-1].max()
             self.resolution_[-1] /= self.resolution_[-1].max()
         
-
     def R_QE_component(self, E_, *args):
         component_ = []
         for i in range(0, 3*self.max_n_gauss_, 3):
@@ -293,8 +352,8 @@ class ResolutionDataModel:
 
     def output_results(self, output_dir = "."):
         if not os.path.isdir(output_dir): os.makedirs(output_dir)
-        fout = open(output_dir + "/fitting_results_%s.txt"%(self.grpfilename_[:-4]), "w")
-        fout.write("Input file name: %s\n"%(self.grpfilename_))
+        fout = open(output_dir + "/fitting_results_%s.txt"%(self.filename_[:-4]), "w")
+        fout.write("Input file name: %s\n"%(self.filename_))
         fout.write("Incident neutron energy: %s meV\n"%(self.neutron_e0_))
         fout.write("Seed: %s\n"%(self.seed_))
         fout.write("Number of qs: %d\n"%(len(self.q_index_)))
@@ -374,8 +433,8 @@ class ResolutionDataModel:
                 log_sufix = "-log"
             else: ylim = (0.0, 1.1)
             log_fg = (False, log_scale)
-            plotfilename = "fitting_plot_%s_%d%s.png"%(self.grpfilename_[:-4], iq, log_sufix)
-            datafilename = "fitting_data_%s_%d.csv"%(self.grpfilename_[:-4], iq)
+            plotfilename = "fitting_plot_%s_%d%s.png"%(self.filename_[:-4], iq, log_sufix)
+            datafilename = "fitting_data_%s_%d.csv"%(self.filename_[:-4], iq)
 
             pt = DataPlot()
             pt.plot(x_, y_, yerr_ = yerr_, \
